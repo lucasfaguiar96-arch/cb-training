@@ -37,31 +37,52 @@ function formDuplas(players){
   return { duplas, leftover:[...rights,...lefts,...jokers] }
 }
 
-function gerarJogos(duplas){
-  const n=duplas.length
-  if(n<2) return []
+function canPair(p1,p2){
+  if(p1.side==='Ambos'||p2.side==='Ambos') return true
+  return p1.side!==p2.side
+}
+
+function gerarJogos(players){
+  const n=players.length
+  if(n<4) return []
   const pc=new Array(n).fill(0)
-  const matches=[]
-  const add=(a,b)=>{ matches.push({duplaA:a,duplaB:b,winner:null}); pc[a]++;pc[b]++ }
-  const idx=shuffle(duplas.map((_,i)=>i))
-  for(let i=0;i+1<idx.length;i+=2) add(idx[i],idx[i+1])
-  if(idx.length%2!==0){
-    const odd=idx[idx.length-1]
-    const best=[...Array(n).keys()].filter(x=>x!==odd).sort((a,b)=>pc[a]-pc[b])[0]
-    add(odd,best)
-  }
-  for(let iter=0;iter<100;iter++){
-    const under=[...Array(n).keys()].filter(i=>pc[i]<2)
-    if(under.length<2) break
-    const u=shuffle(under)
-    for(let i=0;i+1<u.length;i+=2) add(u[i],u[i+1])
-    if(u.length%2!==0){
-      const odd=u[u.length-1]
-      const best=[...Array(n).keys()].filter(x=>x!==odd).sort((a,b)=>pc[a]-pc[b])[0]
-      add(odd,best)
+  const jogos=[]
+  const target=Math.max(1,Math.floor(n/2))
+  let attempts=0
+  while(attempts<300){
+    attempts++
+    const sp=shuffle([...Array(n).keys()])
+    let duplaA=null
+    for(let i=0;i<sp.length;i++){
+      for(let j=i+1;j<sp.length;j++){
+        const a=sp[i],b=sp[j]
+        if(canPair(players[a],players[b])&&pc[a]<3&&pc[b]<3){
+          duplaA=[a,b]; break
+        }
+      }
+      if(duplaA) break
     }
+    if(!duplaA) break
+    const rem=sp.filter(x=>!duplaA.includes(x))
+    let duplaB=null
+    for(let i=0;i<rem.length;i++){
+      for(let j=i+1;j<rem.length;j++){
+        const a=rem[i],b=rem[j]
+        if(canPair(players[a],players[b])&&pc[a]<3&&pc[b]<3){
+          duplaB=[a,b]; break
+        }
+      }
+      if(duplaB) break
+    }
+    if(!duplaB) break
+    jogos.push({duplaA,duplaB,winner:null})
+    ;[...duplaA,...duplaB].forEach(i=>pc[i]++)
+    const under=pc.filter(c=>c===0).length
+    if(!under&&jogos.length>=target) break
   }
-  return matches
+  return jogos
+}
+
 export default function App(){
   const [players,  setPlayers]  = useState([])
   const [matches,  setMatches]  = useState([])

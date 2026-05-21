@@ -10,18 +10,15 @@ const LEVELS     = ['Intermediário','Avançado']
 const CATEGORIES = ['Masculino','Feminino','Misto']
 const GENDERS    = ['Masculino','Feminino']
 const SIDES      = ['Direita','Esquerda','Ambos']
-const LW         = { Intermediário:2, Avançado:3 }
-const MULTS      = { 6:1, 5:1.5, 4:2, 3:2.5 }
-const OPP_MULTS  = { 6:1.5, 5:1.25, 4:1 }
+const LW = { Intermediário:0.5, Avançado:1 }
 
-function getMult(l1,l2){ return MULTS[(LW[l1]??2)+(LW[l2]??2)]??1 }
-function getOppMult(l1,l2){ return OPP_MULTS[(LW[l1]??2)+(LW[l2]??2)]??1 }
+function teamStrength(l1,l2){ return (LW[l1]??1)+(LW[l2]??1) }
 function calcPts(win,lMe,lPart,lOpp1,lOpp2){
   if(!win) return 0
-  const base = 3 * getMult(lMe,lPart)
-  const oppBonus = (lOpp1&&lOpp2) ? getOppMult(lOpp1,lOpp2) : 1
-  return Math.round(base * oppBonus * 10) / 10
-}
+  const myStr  = teamStrength(lMe,lPart)
+  const oppStr = (lOpp1&&lOpp2) ? teamStrength(lOpp1,lOpp2) : myStr
+  const diff   = oppStr - myStr
+  if(diff <= 0)
 function shuffle(arr){
   const a=[...arr]
   for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]] }

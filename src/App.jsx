@@ -90,8 +90,8 @@ export default function App(){
   const [mForm, setMForm] = useState(initMF)
 
   // ── Load data ───────────────────────────────────────────────────────────────
-  const loadAll = useCallback(async () => {
-    setLoading(true)
+  const loadAll = useCallback(async (showLoader=false) => {
+    if(showLoader) setLoading(true)
     const [{ data: pl }, { data: ma }, { data: so }] = await Promise.all([
       supabase.from('players').select('*').order('name'),
       supabase.from('matches').select('*').order('created_at', { ascending: false }),
@@ -100,12 +100,13 @@ export default function App(){
     if(pl) setPlayers(pl)
     if(ma) setMatches(ma)
     if(so && so.length > 0) setSorteio(so[0])
+    else setSorteio(null)
     setLoading(false)
   }, [])
 
-  useEffect(() => { loadAll() }, [loadAll])
+  useEffect(() => { loadAll(true) }, [loadAll])
 
-  // ── Real-time subscriptions ─────────────────────────────────────────────────
+  // ── Real-time subscriptions + polling fallback ──────────────────────────────
   useEffect(() => {
     const ch1 = supabase.channel('players-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => loadAll())
@@ -116,7 +117,9 @@ export default function App(){
     const ch3 = supabase.channel('sorteios-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sorteios' }, () => loadAll())
       .subscribe()
-    return () => { ch1.unsubscribe(); ch2.unsubscribe(); ch3.unsubscribe() }
+    // Polling fallback: refresh every 5 seconds in case realtime is not enabled
+    const interval = setInterval(() => loadAll(), 5000)
+    return () => { ch1.unsubscribe(); ch2.unsubscribe(); ch3.unsubscribe(); clearInterval(interval) }
   }, [loadAll])
 
   // ── Ranking ─────────────────────────────────────────────────────────────────
@@ -126,8 +129,15 @@ export default function App(){
       .forEach(p=>{ pts[p.id]=0; games[p.id]=0; wins[p.id]=0; losses[p.id]=0 })
 
     matches.filter(m=>m.category===category).forEach(m=>{
-      const tA=[{id:m.p1,level:m.p1_level,partner:m.p2_level},{id:m.p2,level:m.p2_level,partner:m.p1_level}]
-      const tB=[{id:m.p3,level:m.p3_level,partner:m.p4_level},{id:m.p4,level:m.p4_level,partner:m.p3_level}]
+      // Use level from match record (p1_level etc), falling back to player's registered level
+      const getLevel=(id,matchLv)=>{
+        if(matchLv&&matchLv!=='mixed') return matchLv
+        return players.find(p=>p.id===id)?.level??matchLv
+      }
+      const l1=getLevel(m.p1,m.p1_level), l2=getLevel(m.p2,m.p2_level)
+      const l3=getLevel(m.p3,m.p3_level), l4=getLevel(m.p4,m.p4_level)
+      const tA=[{id:m.p1,level:l1,partner:l2},{id:m.p2,level:l2,partner:l1}]
+      const tB=[{id:m.p3,level:l3,partner:l4},{id:m.p4,level:l4,partner:l3}]
       ;[...tA,...tB].forEach(({id,level:lv,partner})=>{
         const pl=players.find(p=>p.id===id)
         if(!pl||pl.level!==level) return
@@ -243,6 +253,7 @@ export default function App(){
       .eq('id', sorteio.id)
       .select().single()
     if(data) setSorteio(data)
+    await loadAll()
   }
 
   const undoWinner = async (idx) => {

@@ -129,10 +129,10 @@ export default function App(){
       .forEach(p=>{ pts[p.id]=0; games[p.id]=0; wins[p.id]=0; losses[p.id]=0 })
 
     matches.filter(m=>m.category===category).forEach(m=>{
-      // Use level from match record (p1_level etc), falling back to player's registered level
+      // Resolve level: use match record level, fall back to player registered level
       const getLevel=(id,matchLv)=>{
-        if(matchLv&&matchLv!=='mixed') return matchLv
-        return players.find(p=>p.id===id)?.level??matchLv
+        if(matchLv&&matchLv!=='mixed'&&matchLv!=='null') return matchLv
+        return players.find(p=>p.id===id)?.level??'Avançado'
       }
       const l1=getLevel(m.p1,m.p1_level), l2=getLevel(m.p2,m.p2_level)
       const l3=getLevel(m.p3,m.p3_level), l4=getLevel(m.p4,m.p4_level)
@@ -140,8 +140,10 @@ export default function App(){
       const tB=[{id:m.p3,level:l3,partner:l4},{id:m.p4,level:l4,partner:l3}]
       ;[...tA,...tB].forEach(({id,level:lv,partner})=>{
         const pl=players.find(p=>p.id===id)
-        if(!pl||pl.level!==level) return
+        if(!pl) return
         if(category!=='Misto'&&pl.gender!==category) return
+        // Points go to the ranking matching the level the player competed at
+        if(lv!==level) return
         const inA=tA.some(t=>t.id===id)
         const won=(m.winner==='A'&&inA)||(m.winner==='B'&&!inA)
         pts[id]=(pts[id]??0)+calcPts(won,lv,partner)

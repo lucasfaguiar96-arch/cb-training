@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from './supabase'
 
-// ─── Constants ───────────────────────────────────────────────────────────────
 const C = {
   red:'#cc1a1a', white:'#ffffff', offwhite:'#f5f0f0',
   gray:'#9a8f8f', grayLight:'#c8c0c0', black:'#0d0d0d',
@@ -60,38 +59,26 @@ function gerarJogos(duplas){
     }
   }
   return matches
-}
-
-// ─── App ──────────────────────────────────────────────────────────────────────
 export default function App(){
   const [players,  setPlayers]  = useState([])
   const [matches,  setMatches]  = useState([])
-  const [sorteio,  setSorteio]  = useState(null) // active sorteio session
+  const [sorteio,  setSorteio]  = useState(null)
   const [loading,  setLoading]  = useState(true)
   const [tab,      setTab]      = useState('ranking')
   const [error,    setError]    = useState(null)
-
-  // filter state
   const [filterCat,   setFilterCat]   = useState('Masculino')
   const [filterLevel, setFilterLevel] = useState('Avançado')
-
-  // sorteio config
   const [sorteioCat,    setSorteioCat]    = useState('Masculino')
   const [presentIds,    setPresentIds]    = useState([])
   const [sorteioError,  setSorteioError]  = useState(null)
-
-  // player form
   const [pForm, setPForm] = useState({ name:'', gender:'Masculino', level:'Avançado', side:'Direita' })
-
-  // match form
   const initMF = { category:'Masculino', matchLevel:'Avançado',
     p1:'',p1level:'Avançado', p2:'',p2level:'Avançado',
     p3:'',p3level:'Avançado', p4:'',p4level:'Avançado', winner:'A' }
   const [mForm, setMForm] = useState(initMF)
 
-  // ── Load data ───────────────────────────────────────────────────────────────
-  const loadAll = useCallback(async () => {
-    setLoading(true)
+  const loadAll = useCallback(async (showLoader=false) => {
+    if(showLoader) setLoading(true)
     const [{ data: pl }, { data: ma }, { data: so }] = await Promise.all([
       supabase.from('players').select('*').order('name'),
       supabase.from('matches').select('*').order('created_at', { ascending: false }),
@@ -100,12 +87,12 @@ export default function App(){
     if(pl) setPlayers(pl)
     if(ma) setMatches(ma)
     if(so && so.length > 0) setSorteio(so[0])
+    else setSorteio(null)
     setLoading(false)
   }, [])
 
-  useEffect(() => { loadAll() }, [loadAll])
+  useEffect(() => { loadAll(true) }, [loadAll])
 
-  // ── Real-time subscriptions ─────────────────────────────────────────────────
   useEffect(() => {
     const ch1 = supabase.channel('players-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => loadAll())
@@ -116,22 +103,28 @@ export default function App(){
     const ch3 = supabase.channel('sorteios-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sorteios' }, () => loadAll())
       .subscribe()
-    return () => { ch1.unsubscribe(); ch2.unsubscribe(); ch3.unsubscribe() }
+    const interval = setInterval(() => loadAll(), 5000)
+    return () => { ch1.unsubscribe(); ch2.unsubscribe(); ch3.unsubscribe(); clearInterval(interval) }
   }, [loadAll])
 
-  // ── Ranking ─────────────────────────────────────────────────────────────────
   const getRanking = (category, level) => {
     const pts={}, games={}, wins={}, losses={}
     players.filter(p=>(category==='Misto'?true:p.gender===category)&&p.level===level)
       .forEach(p=>{ pts[p.id]=0; games[p.id]=0; wins[p.id]=0; losses[p.id]=0 })
-
     matches.filter(m=>m.category===category).forEach(m=>{
-      const tA=[{id:m.p1,level:m.p1_level,partner:m.p2_level},{id:m.p2,level:m.p2_level,partner:m.p1_level}]
-      const tB=[{id:m.p3,level:m.p3_level,partner:m.p4_level},{id:m.p4,level:m.p4_level,partner:m.p3_level}]
+      const getLevel=(id,matchLv)=>{
+        if(matchLv&&matchLv!=='mixed'&&matchLv!=='null') return matchLv
+        return players.find(p=>p.id===id)?.level??'Avançado'
+      }
+      const l1=getLevel(m.p1,m.p1_level), l2=getLevel(m.p2,m.p2_level)
+      const l3=getLevel(m.p3,m.p3_level), l4=getLevel(m.p4,m.p4_level)
+      const tA=[{id:m.p1,level:l1,partner:l2},{id:m.p2,level:l2,partner:l1}]
+      const tB=[{id:m.p3,level:l3,partner:l4},{id:m.p4,level:l4,partner:l3}]
       ;[...tA,...tB].forEach(({id,level:lv,partner})=>{
         const pl=players.find(p=>p.id===id)
-        if(!pl||pl.level!==level) return
+        if(!pl) return
         if(category!=='Misto'&&pl.gender!==category) return
+        if(lv!==level) return
         const inA=tA.some(t=>t.id===id)
         const won=(m.winner==='A'&&inA)||(m.winner==='B'&&!inA)
         pts[id]=(pts[id]??0)+calcPts(won,lv,partner)
@@ -140,29 +133,23 @@ export default function App(){
         losses[id]=(losses[id]??0)+(won?0:1)
       })
     })
-
     return players
       .filter(p=>(category==='Misto'?true:p.gender===category)&&p.level===level)
       .map(p=>({...p,pts:pts[p.id]??0,games:games[p.id]??0,wins:wins[p.id]??0,losses:losses[p.id]??0}))
       .sort((a,b)=>b.pts-a.pts)
   }
 
-  // ── Add player ──────────────────────────────────────────────────────────────
   const addPlayer = async () => {
     if(!pForm.name.trim()) return
     const { error } = await supabase.from('players').insert({
-      name: pForm.name.trim(), gender: pForm.gender,
-      level: pForm.level, side: pForm.side,
+      name: pForm.name.trim(), gender: pForm.gender, level: pForm.level, side: pForm.side,
     })
     if(error) { setError('Erro ao adicionar jogador: '+error.message); return }
     setPForm(f=>({...f, name:''}))
   }
 
-  const deletePlayer = async (id) => {
-    await supabase.from('players').delete().eq('id', id)
-  }
+  const deletePlayer = async (id) => { await supabase.from('players').delete().eq('id', id) }
 
-  // ── Add match (manual) ──────────────────────────────────────────────────────
   const addMatch = async () => {
     const {p1,p2,p3,p4,category,matchLevel,p1level,p2level,p3level,p4level,winner} = mForm
     if(!p1||!p2||!p3||!p4) { setError('Selecione todos os jogadores'); return }
@@ -178,28 +165,20 @@ export default function App(){
     setMForm(initMF)
   }
 
-  const deleteMatch = async (id) => {
-    await supabase.from('matches').delete().eq('id', id)
-  }
+  const deleteMatch = async (id) => { await supabase.from('matches').delete().eq('id', id) }
 
-  // ── Sorteio ─────────────────────────────────────────────────────────────────
   const realizarSorteio = async () => {
     let pool = players.filter(p=>presentIds.includes(p.id))
     if(sorteioCat==='Masculino') pool=pool.filter(p=>p.gender==='Masculino')
     else if(sorteioCat==='Feminino') pool=pool.filter(p=>p.gender==='Feminino')
-
     if(pool.length<4){ setSorteioError('Mínimo de 4 jogadores presentes para sortear.'); return }
-
     const {duplas,leftover}=formDuplas(pool)
     if(duplas.length<2){
       setSorteioError('Não foi possível formar duplas. Sem par de lado: '+leftover.map(p=>p.name).join(', ')+'.')
       return
     }
-
     const jogos = gerarJogos(duplas)
     const leftoverMsg = leftover.length>0 ? leftover.map(p=>p.name).join(', ')+' ficaram fora (sem par de lado compatível).' : null
-
-    // Delete previous sorteio and create new one
     await supabase.from('sorteios').delete().neq('id','00000000-0000-0000-0000-000000000000')
     const { data, error } = await supabase.from('sorteios').insert({
       category: sorteioCat,
@@ -207,23 +186,18 @@ export default function App(){
       jogos,
       leftover_msg: leftoverMsg,
     }).select().single()
-
     if(error){ setSorteioError('Erro ao salvar sorteio: '+error.message); return }
     setSorteioError(null)
     setSorteio(data)
     setTab('resultados')
   }
 
-  // ── Set winner for sorteio game ─────────────────────────────────────────────
   const setJogoWinner = async (idx, winner) => {
     if(!sorteio) return
     const jogo = sorteio.jogos[idx]
     if(jogo.winner) return
-
     const dA = sorteio.duplas[jogo.duplaA]
     const dB = sorteio.duplas[jogo.duplaB]
-
-    // Register match in DB
     await supabase.from('matches').insert({
       category: sorteio.category,
       match_level: 'mixed',
@@ -231,33 +205,24 @@ export default function App(){
       p2:dA[1].id, p2_level:dA[1].level,
       p3:dB[0].id, p3_level:dB[0].level,
       p4:dB[1].id, p4_level:dB[1].level,
-      winner,
-      source: 'sorteio',
+      winner, source: 'sorteio',
       match_date: new Date().toLocaleDateString('pt-BR'),
     })
-
-    // Update sorteio jogos
     const updatedJogos = sorteio.jogos.map((j,i)=>i===idx?{...j,winner}:j)
     const { data } = await supabase.from('sorteios')
       .update({ jogos: updatedJogos })
       .eq('id', sorteio.id)
       .select().single()
     if(data) setSorteio(data)
+    await loadAll()
   }
 
   const undoWinner = async (idx) => {
     if(!sorteio) return
     const jogo = sorteio.jogos[idx]
     if(!jogo.winner) return
-
     const dA = sorteio.duplas[jogo.duplaA]
-    // Remove the match from DB (best effort - find by players)
-    await supabase.from('matches')
-      .delete()
-      .eq('p1', dA[0].id)
-      .eq('p2', dA[1].id)
-      .eq('source', 'sorteio')
-
+    await supabase.from('matches').delete().eq('p1', dA[0].id).eq('p2', dA[1].id).eq('source', 'sorteio')
     const updatedJogos = sorteio.jogos.map((j,i)=>i===idx?{...j,winner:null}:j)
     const { data } = await supabase.from('sorteios')
       .update({ jogos: updatedJogos })
@@ -267,7 +232,6 @@ export default function App(){
     loadAll()
   }
 
-  // ── Helpers ─────────────────────────────────────────────────────────────────
   const pName   = id=>players.find(p=>p.id===id)?.name??id
   const pGender = id=>players.find(p=>p.id===id)?.gender??''
   const sideIcon= s=>s==='Direita'?'→':s==='Esquerda'?'←':'↔'
@@ -279,9 +243,7 @@ export default function App(){
   }
   const isMisto = mForm.category==='Misto'
   const ranking = getRanking(filterCat,filterLevel)
-
   const pendingCount = sorteio?.jogos?.filter(j=>!j.winner).length??0
-
   const tabs = [
     {id:'ranking',  label:'Ranking'},
     {id:'sorteio',  label:'Sorteio'},
@@ -297,7 +259,6 @@ export default function App(){
       <div style={{color:C.gray,fontSize:13,letterSpacing:2,textTransform:'uppercase'}}>Carregando...</div>
     </div>
   )
-
   return(
     <div style={{minHeight:'100vh',background:C.black,color:C.offwhite,fontFamily:"'DM Sans','Segoe UI',sans-serif"}}>
       <style>{`
@@ -313,13 +274,12 @@ export default function App(){
         .pcard{cursor:pointer;transition:all .15s;user-select:none}.pcard:hover{opacity:.85}
       `}</style>
 
-      {/* Header */}
       <div style={{background:C.blackAlt,borderBottom:`3px solid ${C.red}`}}>
         <div style={{maxWidth:700,margin:'0 auto',padding:'20px 20px 0'}}>
           <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:20}}>
             <div style={{width:44,height:44,borderRadius:'50%',background:C.red,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Barlow Condensed',sans-serif",fontWeight:800,fontSize:18,color:C.white,flexShrink:0}}>CB</div>
             <div>
-              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:800,fontSize:26,color:C.white,letterSpacing:1,lineHeight:1}}>CB TRAINING</div>
+              <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:800,fontSize:26,color:C.white,letterSpacing:1,lineHeight:1}}>CBallon d'Or</div>
               <div style={{fontSize:11,color:C.gray,letterSpacing:2,textTransform:'uppercase',marginTop:2}}>Ranking Futevôlei</div>
             </div>
           </div>
@@ -345,7 +305,6 @@ export default function App(){
           </div>
         )}
 
-        {/* ══ RANKING ══ */}
         {tab==='ranking'&&(
           <div className="fade">
             <Rw gap={8} wrap mb={12}>{CATEGORIES.map(c=><Tog key={c} on={filterCat===c} onClick={()=>setFilterCat(c)}>{c}</Tog>)}</Rw>
@@ -376,7 +335,6 @@ export default function App(){
           </div>
         )}
 
-        {/* ══ SORTEIO ══ */}
         {tab==='sorteio'&&(
           <div className="fade">
             <div style={{marginBottom:20}}>
@@ -387,7 +345,6 @@ export default function App(){
                   :`Apenas ${sorteioCat.toLowerCase()} presentes. Todos os níveis participam.`}
               </div>
             </div>
-
             <div style={{marginBottom:20,padding:16,background:'rgba(255,255,255,.03)',border:`1px solid ${C.border}`,borderRadius:10}}>
               <SL>Quem está presente hoje?</SL>
               {(()=>{
@@ -421,9 +378,7 @@ export default function App(){
                 {presentIds.filter(id=>{const p=players.find(pl=>pl.id===id);return p&&(sorteioCat==='Misto'?true:p.gender===sorteioCat)}).length} presente(s)
               </div>
             </div>
-
             {sorteioError&&<ErrBox msg={sorteioError}/>}
-
             <button className="btn" onClick={realizarSorteio}
               style={{width:'100%',padding:14,background:C.red,color:C.white,borderRadius:8,fontSize:14,fontWeight:700,letterSpacing:2,textTransform:'uppercase',fontFamily:'inherit'}}>
               Sortear Jogos →
@@ -431,7 +386,6 @@ export default function App(){
           </div>
         )}
 
-        {/* ══ RESULTADOS ══ */}
         {tab==='resultados'&&(
           <div className="fade">
             {!sorteio?(
@@ -447,9 +401,7 @@ export default function App(){
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
                   <div>
                     <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:800,fontSize:22,color:C.white,letterSpacing:1}}>{sorteio.category}</div>
-                    <div style={{fontSize:12,color:C.gray,marginTop:2}}>
-                      {sorteio.jogos.filter(j=>j.winner).length}/{sorteio.jogos.length} concluídos
-                    </div>
+                    <div style={{fontSize:12,color:C.gray,marginTop:2}}>{sorteio.jogos.filter(j=>j.winner).length}/{sorteio.jogos.length} concluídos</div>
                   </div>
                   <button className="btn" onClick={async()=>{
                     await supabase.from('sorteios').delete().eq('id',sorteio.id)
@@ -458,14 +410,11 @@ export default function App(){
                     Novo sorteio
                   </button>
                 </div>
-
                 {sorteio.leftover_msg&&(
                   <div style={{background:'rgba(255,200,0,.08)',border:'1px solid rgba(255,200,0,.25)',borderRadius:8,padding:'10px 14px',marginBottom:16,fontSize:12,color:'#f5d97a'}}>
                     ⚠ {sorteio.leftover_msg}
                   </div>
                 )}
-
-                {/* Progress */}
                 {(()=>{
                   const done=sorteio.jogos.filter(j=>j.winner).length
                   const pct=sorteio.jogos.length>0?Math.round(done/sorteio.jogos.length*100):0
@@ -477,15 +426,13 @@ export default function App(){
                     </div>
                   )
                 })()}
-
                 {sorteio.jogos.map((j,idx)=>{
                   const dA=sorteio.duplas[j.duplaA]
                   const dB=sorteio.duplas[j.duplaB]
                   const done=!!j.winner
                   return(
                     <div key={idx} style={{background:done?'rgba(255,255,255,.02)':'rgba(255,255,255,.035)',
-                      border:`1px solid ${done?'rgba(255,255,255,.05)':C.border}`,
-                      borderRadius:12,padding:16,marginBottom:12}}>
+                      border:`1px solid ${done?'rgba(255,255,255,.05)':C.border}`,borderRadius:12,padding:16,marginBottom:12}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
                         <span style={{fontSize:12,color:done?C.gray:C.offwhite,fontWeight:600,letterSpacing:1}}>JOGO {idx+1}</span>
                         {done&&<button className="del" onClick={()=>undoWinner(idx)} style={{fontSize:11}}>desfazer</button>}
@@ -531,7 +478,6 @@ export default function App(){
                     </div>
                   )
                 })}
-
                 {sorteio.jogos.length>0&&sorteio.jogos.every(j=>j.winner)&&(
                   <div style={{textAlign:'center',padding:'24px 0',fontSize:14,color:'#4caf7d',fontWeight:600}}>
                     ✓ Todos os jogos concluídos! Ranking atualizado.
@@ -541,8 +487,6 @@ export default function App(){
             )}
           </div>
         )}
-
-        {/* ══ PARTIDA MANUAL ══ */}
         {tab==='match'&&(
           <div className="fade">
             <div style={{marginBottom:16}}>
@@ -631,7 +575,6 @@ export default function App(){
           </div>
         )}
 
-        {/* ══ JOGADORES ══ */}
         {tab==='players'&&(
           <div className="fade">
             <div style={{background:'rgba(255,255,255,.03)',border:`1px solid ${C.border}`,borderRadius:10,padding:16,marginBottom:28}}>
@@ -673,7 +616,6 @@ export default function App(){
           </div>
         )}
 
-        {/* ══ HISTÓRICO ══ */}
         {tab==='history'&&(
           <div className="fade">
             {matches.length===0?<Emp>Nenhuma partida registrada ainda.</Emp>

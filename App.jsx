@@ -12,10 +12,16 @@ const GENDERS    = ['Masculino','Feminino']
 const SIDES      = ['Direita','Esquerda','Ambos']
 const LW         = { Intermediário:2, Avançado:3 }
 const MULTS      = { 6:1, 5:1.5, 4:2, 3:2.5 }
+const OPP_MULTS  = { 6:1.5, 5:1.25, 4:1 }
 
 function getMult(l1,l2){ return MULTS[(LW[l1]??2)+(LW[l2]??2)]??1 }
-function calcPts(win,lMe,lPart){ return win ? Math.round(3*getMult(lMe,lPart)*10)/10 : 0 }
-
+function getOppMult(l1,l2){ return OPP_MULTS[(LW[l1]??2)+(LW[l2]??2)]??1 }
+function calcPts(win,lMe,lPart,lOpp1,lOpp2){
+  if(!win) return 0
+  const base = 3 * getMult(lMe,lPart)
+  const oppBonus = (lOpp1&&lOpp2) ? getOppMult(lOpp1,lOpp2) : 1
+  return Math.round(base * oppBonus * 10) / 10
+}
 function shuffle(arr){
   const a=[...arr]
   for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]] }
@@ -127,7 +133,8 @@ export default function App(){
         if(lv!==level) return
         const inA=tA.some(t=>t.id===id)
         const won=(m.winner==='A'&&inA)||(m.winner==='B'&&!inA)
-        pts[id]=(pts[id]??0)+calcPts(won,lv,partner)
+       const oppTeam=inA?tB:tA
+pts[id]=(pts[id]??0)+calcPts(won,lv,partner,oppTeam[0].level,oppTeam[1].level)
         games[id]=(games[id]??0)+1
         wins[id]=(wins[id]??0)+(won?1:0)
         losses[id]=(losses[id]??0)+(won?0:1)

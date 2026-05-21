@@ -280,7 +280,7 @@ export default function App(){
             <div style={{width:44,height:44,borderRadius:'50%',background:C.red,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Barlow Condensed',sans-serif",fontWeight:800,fontSize:18,color:C.white,flexShrink:0}}>CB</div>
             <div>
               <div style={{fontFamily:"'Barlow Condensed',sans-serif",fontWeight:800,fontSize:26,color:C.white,letterSpacing:1,lineHeight:1}}>CBallon d'Or</div>
-              <div style={{fontSize:11,color:C.gray,letterSpacing:2,textTransform:'uppercase',marginTop:2}}>Ranking Futevôlei</div>
+              <div style={{fontSize:11,color:C.gray,letterSpacing:2,textTransform:'uppercase',marginTop:2}}>Ballon D'Or</div>
             </div>
           </div>
           <div style={{display:'flex',overflowX:'auto'}}>
